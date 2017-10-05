@@ -9,6 +9,3 @@ In general:
 .R or .Rmd files contain the R code (no output) that can be opened in R studio, and run from there
 
 You can download files individually from this repository, or you can install github desktop to handle the files for you. 
-
-# Schedule
-
