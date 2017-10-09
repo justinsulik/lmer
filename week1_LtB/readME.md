@@ -1,3 +1,3 @@
 Week 1: Thinking about the statistical issues underlying regression
 
-normPlot.R produces two kinds of plots for seeing how some randomly sampled data compares with a normal distribution
+normPlot.R is Justin's script for producing two kinds of plots, to seeing how some randomly sampled data compares with a normal distribution
