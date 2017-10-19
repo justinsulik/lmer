@@ -1,0 +1,491 @@
+---
+title: "LMER workshop Session 2"
+author:
+  - Justin Sulik & Louis ten Bosch
+  - justin.sulik@gmail.com
+  - github/justinsulik
+date: "October 19, 2017"
+output: 
+  ioslides_presentation:
+    transition: faster
+    widescreen: true
+    css: styles.css
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+## An introduction to LMERs
+
+- Learning outcomes:
+    - Understand the difference between fixed and random effects
+    - Understand why we bother modeling random effects 
+    - Use the `lmer()` function to create a simple model
+    - Understand main elements of the `lmer()` output
+    
+## An introduction to LMERs
+
+- The approach today:
+    - "Simulate and see"
+    - I'm skipping a bunch of stuff you *should* usually do:
+        - Looking at how the data/errors are distributed, 
+        - Looking for outliers
+        - etc.
+
+## Set up
+
+```{r, echo=T,warning=F,message=F}
+library(tidyverse)
+library(lme4)
+library(MuMIn)
+```
+
+## Regression
+
+```{r}
+x <- rnorm(150,1,2)
+e <- rnorm(150,0,1)
+e2 <- rnorm(150,0,5)
+data <- data.frame(x=x,e=e,y=1.5*x+e+1,y2=1.5*x+e2+1)
+mod <- lm(y~x,data)
+data$predicted <- predict(mod)
+intercept <- round(coef(mod)[[1]], 2)
+slope <- round(coef(mod)[[2]], 2)
+r2 <- round(summary(mod)$r.squared, 2)
+```
+
+- $y = \beta_0 + \beta_1*x + \epsilon$
+
+> - $y = \beta_0 + \beta_1*x_1 + \beta_2*x_2 + \dots + \epsilon$
+
+> - $y = `r intercept` + `r slope`x$
+
+```{r out.width='60%'}
+data %>% ggplot(aes(x=x,y=y)) + geom_point() + stat_smooth(method=lm,se=F) + theme_bw()+scale_y_continuous(breaks=seq(-12,12,2))+scale_x_continuous(breaks=seq(-6,6,2))
+```
+
+<div class="notes">
+talk through graph. 
+y-hat
+</div>
+
+## Unexplained variance
+
+```{r out.width='60%', fig.asp=0.5}
+data %>% ggplot(aes(x=x,y=y)) + geom_point() + stat_smooth(method=lm,se=F) + theme_bw()+ geom_segment(aes(xend=x,yend=predicted),color='red',alpha=0.6)+labs(title=paste("R-squared", r2))
+```
+
+<div class="notes">
+error vs residuals
+</div>
+
+## Unexplained variance
+
+```{r out.width='60%', fig.asp=0.5}
+mod <- lm(y2~x,data)
+data$predicted <- predict(mod)
+r2 <- round(summary(mod)$r.squared, 2)
+intercept <- round(coef(mod)[[1]], 2)
+slope <- round(coef(mod)[[2]], 2)
+data %>% ggplot(aes(x=x,y=y2)) + geom_point() + stat_smooth(method=lm,se=F) + theme_bw() + geom_segment(aes(xend=x,yend=predicted),color='red',alpha=0.6)+labs(title=paste("R-squared", r2))
+```
+
+> - Let's check understanding:
+> - Is the effect weaker?
+> - Has the correlation changed?
+> - Why are larger residuals a problem?
+
+<div class="notes">
+weaker? no, could be a bit weaker, a bit stronger. more room to vary. 
+error: less explanation
+might not be significant
+process might be noisy
+OR might be missing another important variable
+</div>   
+
+## Simulate and see
+
+Change some of the values to see what happens 
+
+(e.g. change the sd of the error to make it more spread out)
+
+```{r echo=T, eval=F}
+x <- rnorm(150,0,2) #N, mean, sd
+e <- rnorm(150,0,1) #N, mean, sd 
+y <- 1 + 2*x + e #So what is the expected intercept? Slope?
+data <- data.frame(x=x,y=y)
+
+mod.lm <- lm(y~x,data)
+coef(mod.lm)
+
+data %>% select(x,y) %>% cor
+summary(mod.lm)$r.squared
+```
+
+## Reducing unexplained variance
+
+- $y = \beta_0 + \beta_1*x + \epsilon$
+- $\epsilon$ is unexplained random error
+- It's a big amorphous bag of stuff we don't know
+- What if there was still some random variation, but we could 
+    - model it?
+    - improve $R^2$?
+
+## Reducing unexplained variance
+
+- Imaginary experiment:
+    - How quickly do people learn to recognize unfamiliar words in a foreign language over multiple practice sessions?
+    - https://www.youtube.com/watch?v=julUUzo4NX4
+    - Dependent: #identified, ...
+    - Independent: #practice sessions, ... 
+    
+>   - Do you expect the effect to be the same for everyone?
+>   - If not, how might participants differ?
+>   - Do we care if participant A is better than participant B at this task?
+>   - Why get each participant to respond more than once?
+    
+<div class="notes">
+kodomo, soshite
+hit/no hit
+count of hits within X time
+sentence length, position in sentence, frequency, 
+within-subj: reduces # participants (reduces couple sources of error! pool of variation, and chance that assignment to condition introduces an effect)
+</div>
+
+## Reducing unexplained variance
+
+- $y = \beta_0 + \beta_1*time + \epsilon$
+
+> - $y = \beta_0 + \beta_1*time + (1|participant) + \epsilon$
+> - $y = \beta_0 + \beta_1*time + (1|word) + \epsilon$
+> - $y = \beta_0 + \beta_1*time + (1|word) + (1|participant) + \epsilon$
+
+> - The random effects give some structure to the error
+> - We still don't understand the random effects
+> - We don't _control_ them
+> - They are specific to this data
+
+<div class="notes">
+general error term
+</div>
+
+## Simulate and see {.smaller}
+
+```{r echo=T, cache=T}
+x <- rnorm(100,0,2)
+e1 <- rnorm(100,1,2)
+e2 <- rnorm(100,-2,2)
+e3 <- rnorm(100,3,2)
+e4 <- rnorm(100,2,2)
+data <- data.frame(x=x,p1=x+e1,p2=x+e2,p3=x+e3,p4=x+e4)
+summary(data)
+dataLong <- data %>% gather(participant,y,p1:p4)
+```
+
+## Simulate and see
+
+```{r echo=T, out.width='60%', fig.asp=0.5}
+ggplot(dataLong,aes(x=x,y=y))+
+  geom_point()+
+  stat_smooth(method=lm,se=F)+
+  theme_bw()
+```
+
+## Simulate and see 
+
+```{r echo=T, out.width='60%', fig.asp=0.5}
+ggplot(dataLong,aes(x=x,y=y,color=participant))+
+  geom_point()+
+  theme_bw()+
+  guides(color=F)
+```
+
+## Simulate and see 
+
+```{r echo=T, out.width='60%', fig.asp=0.5}
+ggplot(dataLong,aes(x=x,y=y,color=participant))+
+  geom_point()+
+  stat_smooth(method=lm,se=F)+
+  theme_bw()+
+  guides(color=F)
+```
+
+## Simulate and see
+
+```{r echo=T, out.width='60%', fig.asp=0.5}
+ggplot(dataLong, aes(x=x,y=y,color=participant))+
+  geom_point()+
+  stat_smooth(method=lm,se=F)+
+  theme_bw()+
+  facet_wrap(~participant)+
+  guides(color=F)
+```
+
+## lm() {.smaller}
+
+```{r, echo=T}
+mod.lm <- lm(y~x,dataLong)
+summary(mod.lm)
+```
+
+## lmer() with random intercept {.smaller}
+
+```{r, echo=T}
+mod.lmer <- lmer(y~x+(1|participant),dataLong)
+summary(mod.lmer)
+```
+
+## lmer() with random intercept
+
+```{r, echo=T}
+ranef(mod.lmer)
+```
+
+## lmer() with random intercept {.smaller}
+
+```{r, echo=T}
+r.squaredGLMM(mod.lm)
+r.squaredGLMM(mod.lmer)
+# Residual variance 
+summary(mod.lm)$sigma^2 # Is this anywhere in the model summary? 
+summary(mod.lmer)$sigma^2 #Where in the model summary is this value found?
+```
+
+<div class="notes">
+So what is `lmer()` modeling (in relation to the random intercepts)?
+</div>
+
+## Simulate and see
+
+Try change one of the following without changing the other (too much)
+
+- variance explained by random effect `participant`
+- residual variance
+
+## Breathing point
+
+- Does the data consist of independent observations? 
+- Why is `participant` a random effect, not a fixed effect?
+- What is the main difference between `mod.lm` and `mod.lmer`?
+    
+## Fixed vs. random effects
+
+- Do you care about its effect?
+    - Does it reflect some other factor you might care about?
+- Is it part of a general phenomenon, or specific to this data?
+- Is is predictable/systematic?
+    - Participant baseline drawn from random normal distribution or varying according to IQ?
+    - Items drawn at random from language, or chosen to reflect particular properties?
+
+## Other things to note
+
+- We have multiple data points per participant
+    - Something like `IQ ~ vocab size` wouldn't need an LMER
+- These don't need to be extremely well balanced
+
+## Random intercepts vs. random slopes
+
+- We've built random intercepts into our data
+    - Some people's baseline performance is higher (or lower) than others
+
+> - But it's also possible that some people would respond better (or worse) than others to whatever treatment/condition/intervention/factor we're dealing with
+>     - E.g. some people improve faster with practice than others
+
+
+## Random intercepts vs. random slopes
+
+- Sanity check: show that our data so far doesn't merit modeling with random slopes
+- Syntax:
+    - random intercept: `(1|participant)`
+    - random intercept and slope `(1+x|participant)`
+    - random slope: `(0+x|participant)`
+    
+    
+## Random intercepts vs. random slopes {.smaller}
+
+```{r, echo=T}
+dataLong %>% lmer(y~x+(1+x|participant),.) %>% summary
+```
+
+## Random intercepts vs. random slopes 
+
+- What's the new column in the random effects matrix?
+- What stands out about the values for random slope?
+- The model is overparameterized (Baayen, Davison & Bates, 2008)
+- We don't even need to do any model comparison to know this data doesn't need a random slope!
+
+## Random intercepts vs. random slopes {.smaller}
+
+- Random slope only (no intercept)
+
+```{r, echo=T}
+dataLong %>% lmer(y~x+(0+x|participant),.) %>% summary
+```
+
+## Build in some random slopes
+
+- How would you do it?
+- Think back to the betas encountered earlier
+
+## Build in some random slopes
+
+```{r, echo=T}
+dataLong <- data %>% 
+  mutate(p1=1.2*p1, p2=0.8*p2, p4=0.2*p4) %>%
+  gather(participant,y,p1:p4)
+```
+
+<div class="notes">
+There are other ways to do this. But this means only difference is in intercept/slope
+</div>
+
+## Build in some random slopes {.smaller}
+
+```{r, echo=T, out.width='60%', fig.asp=0.5}
+ggplot(dataLong, aes(x=x,y=y))+
+  stat_smooth(method=lm, se=F)+
+  geom_point()+
+  theme_bw()
+```
+
+## Build in some random slopes {.smaller}
+
+```{r, echo=T, out.width='60%', fig.asp=0.5}
+ggplot(dataLong, aes(x=x,y=y,color=participant))+
+  stat_smooth(method=lm, se=F)+
+  geom_point()+
+  theme_bw()+
+  guides(color=F)
+```
+
+<div class="notes">
+p4 - low residuals, but also lower avg. effect
+</div>
+
+## lm()
+
+- Has the beta changed?
+- What else?
+
+## lm() {.smaller}
+```{r, echo=T}
+mod.lm <- lm(y~x,dataLong) 
+summary(mod.lm)
+```
+
+## lmer() with random slope
+
+- What do you expect the output to look like?
+- How would it differ from the previous lmer()?
+- How would it differ from the lm()?
+
+## lmer() with random slope {.smaller}
+
+```{r, echo=T}
+mod.lmer <- lmer(y~x+(1+x|participant),dataLong)
+summary(mod.lmer)
+```
+
+## lmer() with random slope 
+
+- Why a smaller t? (Cf. random intercept)
+- Should we panic?
+- Is this still a good idea?
+
+## lmer() with random slope
+
+```{r, echo=T}
+ranef(mod.lmer)
+```
+
+## lmer() with random slope {.smaller}
+
+```{r, echo=T}
+r.squaredGLMM(mod.lm)
+r.squaredGLMM(mod.lmer)
+# Residual variance 
+summary(mod.lm)$sigma^2  
+summary(mod.lmer)$sigma^2
+```
+
+
+## Another option?
+
+- Have we seen any other way to change a slope?
+
+## Another option?
+
+```{r echo=T}
+x <- rnorm(100,0,2)
+e1 <- rnorm(100,1,4)
+e2 <- rnorm(100,-2,8)
+e3 <- rnorm(100,3,5)
+e4 <- rnorm(100,2,7)
+data <- data.frame(x=x,p1=x+e1,p2=x+e2,p3=x+e3,p4=x+e4)
+dataLong <- data %>% gather(participant,y,p1:p4)
+```
+
+## Another option?
+
+```{r, echo=T, out.width='60%', fig.asp=0.5}
+ggplot(dataLong, aes(x=x,y=y,color=participant))+
+  stat_smooth(method=lm, se=F)+
+  geom_point()+
+  theme_bw()+
+  guides(color=F)
+```
+
+## Another option? Still overparameterized! {.smaller}
+
+```{r, echo=T}
+mod.lmer <- lmer(y~x+(1+x|participant),dataLong)
+summary(mod.lmer)
+```
+
+## Other benefits of lmer
+
+- Reasonably robust against missing data/unbalanced designs
+- Carefully weigh the benefits of a within-subjects design
+    - vs. averaging or requiring independent observations
+    - can take the full data into account
+- Hierarchical: children in classes in schools in school districts
+    - `(1|school/participant)`
+- Can allow for quite complex models (if you *really* need such a thing)
+- Very flexible. Can be generalized quite easily 
+    - E.g. if data not normally distributed
+    - See week 5
+   
+<div class="notes">
+e.g. averaging over subjects for by-item analysis, averaging over items for by-subj analysis
+vs e.g. taking mean per participant. won't tell you how much variation - how good model - etc.
+every time you do that, you're loosing information
+</div>
+
+
+## Homework
+
+I've focused on trying to give you a practical understanding of what random intercepts and slopes are ("simulate and see!")
+
+I've focused on things like $R^2$ as a motivation for doing this, and glossed over other issues (like non-independence of data points if repeated-measures design)
+
+I've not focused on the typical workflow for building models. That is for homework (with these excellent tutorials by Bodo Winter).
+
+Read the first (more about modeling in general, with some neat examples of what you should do to check your data before building a ton of models), and work through the second in detail
+
+[http://www.bodowinter.com/tutorial/bw_LME_tutorial1.pdf](http://www.bodowinter.com/tutorial/bw_LME_tutorial1.pdf)
+
+[http://www.bodowinter.com/tutorial/bw_LME_tutorial2.pdf](http://www.bodowinter.com/tutorial/bw_LME_tutorial2.pdf)
+
+## An introduction to LMERs
+
+- Learning outcomes:
+    - Understand the difference between fixed and random effects
+    - Understand why we bother modeling random effects 
+    - Use the `lmer()` function to create a simple model
+    - Understand main elements of the `lmer()` output
+    
+- Questions?
+    
