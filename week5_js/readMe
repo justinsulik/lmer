@@ -1,0 +1,3 @@
+data_session5.csv is some practice data to practice using glm(er) to model different distributions. 
+
+Use fas_usf as the predictor variable, match as the outcome, and consider using item as random effect.
